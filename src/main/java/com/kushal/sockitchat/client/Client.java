@@ -28,9 +28,9 @@ public class Client {
             // Read the message sent by server
             Thread readerThread = new Thread(() -> {
                 try {
-                    String serverMessage;
-                    while((serverMessage = in.readLine()) != null) {
-                        System.out.println("Message received from server: " + serverMessage);
+                    String connectedClientMessage;
+                    while((connectedClientMessage = in.readLine()) != null) {
+                        System.out.println("Message received from connected client: " + connectedClientMessage);
                     }
                 } catch (IOException e) {
                     System.out.println("Connection closed.");
