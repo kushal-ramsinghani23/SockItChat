@@ -6,6 +6,7 @@ package com.kushal.sockitchat.server;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 /**
@@ -16,6 +17,7 @@ public class Server {
     public static void main(String[] args) {
         System.out.println("Server is waiting for a client connection...");
         
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
         try (ServerSocket serverSocket = new ServerSocket(5000);
              Socket clientSocket = serverSocket.accept();
              
@@ -25,15 +27,41 @@ public class Server {
             
             System.out.println("Client connected!");
             
-            // 1. Read the message sent by the client
-            String clientMessage = in.readLine();
-            System.out.println("Message received from client: " + clientMessage);
+            // Read the message sent by client
+            Thread readerThread = new Thread(() -> {
+                try {
+                    String clientMessage;
+                    while((clientMessage = in.readLine()) != null) {
+                        System.out.println("Message received from client: " + clientMessage);
+                    }
+                } catch (IOException e) {
+                    System.out.println("Connection closed.");
+                }
+            });
+           
+            // Write a message to the client
+            Thread writerThread = new Thread(() -> {
+                try {
+                    String message;
+                    while((message = br.readLine()) != null) {
+                        out.println(message);
+                    }
+                } catch (IOException e) {
+                    System.out.println("Connection closed.");
+                }
+            });
             
-            // 2. Send a reply back to the client
-            out.println("Hello back from Server!");
+            readerThread.start();
+            writerThread.start();
             
-        } catch (Exception e) {
+            readerThread.join();
+            writerThread.join();
+            
+            
+        } catch (IOException e) {
             System.out.println("Server error: " + e.getMessage());
+        } catch (InterruptedException ex) {
+            System.getLogger(Server.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
         }
     }
 }
