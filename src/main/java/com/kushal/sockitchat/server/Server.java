@@ -8,6 +8,8 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 /**
  *
  * @author kushal-ramsinghani
@@ -20,14 +22,16 @@ public class Server {
         
         try {
             ServerSocket serverSocket = new ServerSocket(5000);
-                    
+            
+            // Create once — fixed pool of 100 threads
+            ExecutorService pool = Executors.newFixedThreadPool(100);
+            
             while(true) {
                 Socket clientSocket = serverSocket.accept();
-                System.out.println("Client connected!");
                 
+                // Submit a task — pool assigns it to a free thread
                 ClientHandler clientHandler = new ClientHandler(clientSocket);
-                
-                new Thread(clientHandler).start();
+                pool.execute(clientHandler);
             } 
             
         } catch(IOException e) {
