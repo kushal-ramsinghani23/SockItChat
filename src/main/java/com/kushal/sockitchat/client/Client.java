@@ -3,63 +3,62 @@
  * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
  */
 package com.kushal.sockitchat.client;
+
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
-import java.io.IOException;
 import java.net.Socket;
-/**
- *
- * @author kushal-ramsinghani
- */
+
 public class Client {
     public static void main(String[] args) {
         System.out.println("Connecting to the server...");
-        
+
+        // Keyboard reader — outside try so System.in isn't closed
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+
         try (Socket socket = new Socket("localhost", 5000);
-             
-             // Setup tools to write to and read from the server
              PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
              BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
-            
-            System.out.println("Connected! Sending message to server...");
-            
-            // Read the message sent by server
+
+            // Register username — server reads this as first message
+            System.out.print("Enter username: ");
+            out.println(br.readLine());
+
+            // Receive and display messages from other clients
             Thread readerThread = new Thread(() -> {
                 try {
-                    String connectedClientMessage;
-                    while((connectedClientMessage = in.readLine()) != null) {
-                        System.out.println("Message received from connected client: " + connectedClientMessage);
+                    String message;
+                    while ((message = in.readLine()) != null) {
+                        System.out.println(message);
                     }
                 } catch (IOException e) {
                     System.out.println("Connection closed.");
                 }
             });
-            
-            // Write a message to the server
+
+            // Read keyboard input and send to server
             Thread writerThread = new Thread(() -> {
                 try {
                     String message;
-                    while((message = br.readLine()) != null) {
+                    while ((message = br.readLine()) != null) {
                         out.println(message);
                     }
                 } catch (IOException e) {
                     System.out.println("Connection closed.");
                 }
             });
-            
+
             readerThread.start();
             writerThread.start();
-            
+
             readerThread.join();
             writerThread.join();
-            
 
         } catch (IOException e) {
             System.out.println("Client error: " + e.getMessage());
-        } catch (InterruptedException ex) {
-            System.getLogger(Client.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 }
