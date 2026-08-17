@@ -5,6 +5,7 @@
 
 package com.kushal.sockitchat.server;
 
+import com.kushal.sockitchat.common.UserContext;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -29,7 +30,8 @@ public class ClientHandler implements Runnable {
 
             // First message from client is always the username
             this.username = in.readLine();
-
+            UserContext.currentUser.set(username);
+            
             // Safe to add — out is fully initialized
             Server.clients.add(this);
             System.out.println(username + " connected! Total: " + Server.clients.size());
@@ -48,7 +50,9 @@ public class ClientHandler implements Runnable {
 
             readerThread.start();
             readerThread.join();
-
+            
+            UserContext.currentUser.remove();
+            
         } catch (IOException e) {
             System.out.println("Server error: " + e.getMessage());
         } catch (InterruptedException e) {
@@ -60,6 +64,8 @@ public class ClientHandler implements Runnable {
     private void broadcast(String message) {
         for (ClientHandler ch : Server.clients) {
             if (!ch.equals(this)) {
+//                This below one is wrong -> As this uses readerThread's ThreadLocal which is empty & not this thread's ThreadLocal!!
+//                ch.out.println(UserContext.currentUser.get() + ": " + message);
                 ch.out.println(username + ": " + message);
             }
         }
