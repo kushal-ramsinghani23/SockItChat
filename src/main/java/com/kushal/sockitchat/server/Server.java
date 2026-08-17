@@ -8,23 +8,32 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 /**
  *
  * @author kushal-ramsinghani
  */
 public class Server {
-    static List<ClientHandler> clients = new ArrayList<>();
-    
+    static List<ClientHandler> clients = new CopyOnWriteArrayList<>();
+    static ExecutorService pool = Executors.newFixedThreadPool(100);
+
     public static void main(String[] args) {
-        System.out.println("Server is waiting for a client connection...");
+        
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                pool.shutdown();
+                pool.awaitTermination(30, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                System.out.println("Shutdown interrupted: " + ex.getMessage());
+                Thread.currentThread().interrupt();
+            }
+        }));
         
         try {
             ServerSocket serverSocket = new ServerSocket(5000);
-            
-            // Create once — fixed pool of 100 threads
-            ExecutorService pool = Executors.newFixedThreadPool(100);
             
             while(true) {
                 Socket clientSocket = serverSocket.accept();
