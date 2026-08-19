@@ -18,8 +18,8 @@ public class Client {
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
 
         try (Socket socket = new Socket("localhost", 5000);
-             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
 
             // Register username — server reads this as first message
             System.out.print("Enter username: ");
