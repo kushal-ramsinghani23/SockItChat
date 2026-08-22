@@ -6,15 +6,14 @@
 package com.kushal.sockitchat.server;
 
 import com.kushal.sockitchat.common.UserContext;
-import java.io.BufferedReader;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.Socket;
 
 public class ClientHandler implements Runnable {
-    private Socket clientSocket;
-    private PrintWriter out;
+    private final Socket clientSocket;
+    private DataOutputStream out;
     private String username;
 
     public ClientHandler(Socket clientSocket) {
@@ -25,11 +24,11 @@ public class ClientHandler implements Runnable {
     public void run() {
         try {
             // Initialize streams
-            BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-            this.out = new PrintWriter(clientSocket.getOutputStream(), true);
+            DataInputStream in = new DataInputStream(clientSocket.getInputStream());
+            this.out = new DataOutputStream(clientSocket.getOutputStream());
 
             // First message from client is always the username
-            this.username = in.readLine();
+            this.username = in.readUTF();
             UserContext.currentUser.set(username);
             
             // Safe to add — out is fully initialized
@@ -39,12 +38,21 @@ public class ClientHandler implements Runnable {
             // Read messages and broadcast to all other clients
             Thread readerThread = new Thread(() -> {
                 try {
-                    String clientMessage;
-                    while ((clientMessage = in.readLine()) != null) {
+                    // No more while(readUTF != null)
+                    // Instead — loop forever, catch EOFException to detect disconnect
+                    while(true) {
+                        String clientMessage = in.readUTF();
                         broadcast(clientMessage);
                     }
                 } catch (IOException e) {
                     System.out.println(username + " disconnected.");
+                } finally {
+                    // remove dead handler — prevents broadcasting to closed sockets
+                    Server.clients.remove(this);
+                    
+                    // clear ThreadLocal — prevents stale data leaking into reused pool threads
+                    UserContext.currentUser.remove();
+                    System.out.println(username + " removed. Total: " + Server.clients.size());
                 }
             });
 
@@ -64,9 +72,12 @@ public class ClientHandler implements Runnable {
     private void broadcast(String message) {
         for (ClientHandler ch : Server.clients) {
             if (!ch.equals(this)) {
-//                This below one is wrong -> As this uses readerThread's ThreadLocal which is empty & not this thread's ThreadLocal!!
-//                ch.out.println(UserContext.currentUser.get() + ": " + message);
-                ch.out.println(username + ": " + message);
+                try {
+                    ch.out.writeUTF(username + ": " + message);
+                    ch.out.flush(); // for DataOutputStream we have to do this MANUALLY
+                } catch (IOException ex) {
+                    System.getLogger(ClientHandler.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+                }
             }
         }
     }

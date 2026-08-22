@@ -4,16 +4,15 @@ import com.formdev.flatlaf.FlatDarkLaf;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionListener;
-import java.io.BufferedReader;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.Socket;
 
 public class ChatClient {
 
     private Socket socket;
-    private PrintWriter out;
+    private DataOutputStream out;
     private String username;
 
     private CardLayout cardLayout;
@@ -32,8 +31,8 @@ public class ChatClient {
 
     // Promoted to instance fields — needed in connectToServer()
     private JFrame frame;
-    private JLabel userProfileName;
-    private JLabel avatarLabel;
+    private final JLabel userProfileName;
+    private final JLabel avatarLabel;
 
     public ChatClient() {
         frame = new JFrame("SockItChat");
@@ -162,7 +161,13 @@ public class ChatClient {
         ActionListener sendAction = e -> {
             String message = messageField.getText().trim();
             if (!message.isEmpty() && out != null) {
-                out.println(message);
+                try {
+                    out.writeUTF(message);
+                    out.flush();
+                } catch (IOException ex) {
+                    System.getLogger(ChatClient.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+                }
+                
                 // Show own message locally
                 chatArea.append("You: " + message + "\n");
                 messageField.setText("");
@@ -182,12 +187,13 @@ public class ChatClient {
         try {
             // 1. Open socket — blocking call, safe on background thread
             socket = new Socket(ip, 5000);
-            out = new PrintWriter(socket.getOutputStream(), true);
-            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            out = new DataOutputStream(socket.getOutputStream());
+            DataInputStream in = new DataInputStream(socket.getInputStream());
 
             // 2. Send username as first message
-            out.println(username);
-
+            out.writeUTF(username);
+            out.flush();
+            
             // 3. Switch to chat screen on EDT
             SwingUtilities.invokeLater(() -> {
                 cardLayout.show(mainPanel, "chat");
@@ -199,11 +205,12 @@ public class ChatClient {
             // 4. Reader thread — listens for incoming messages forever
             Thread readerThread = new Thread(() -> {
                 try {
-                    String message;
-                    while ((message = in.readLine()) != null) {
-                        final String msg = message;
+                    // No more while(readUTF != null)
+                    // Instead — loop forever, catch EOFException to detect disconnect
+                    while(true) {
+                        String message = in.readUTF();
                         // Must update Swing components on EDT only
-                        SwingUtilities.invokeLater(() -> chatArea.append(msg + "\n"));
+                        SwingUtilities.invokeLater(() -> chatArea.append(message + "\n"));
                     }
                 } catch (IOException e) {
                     SwingUtilities.invokeLater(() ->
