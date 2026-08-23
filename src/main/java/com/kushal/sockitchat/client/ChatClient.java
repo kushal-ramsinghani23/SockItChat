@@ -6,8 +6,10 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.net.Socket;
+import java.nio.file.Files;
 
 public class ChatClient {
 
@@ -28,6 +30,7 @@ public class ChatClient {
     private JTextArea chatArea;
     private JTextField messageField;
     private JButton sendButton;
+    private JButton fileButton; // Added instance field for the file attachment button
 
     // Promoted to instance fields — needed in connectToServer()
     private JFrame frame;
@@ -130,9 +133,18 @@ public class ChatClient {
         JPanel inputPanel = new JPanel(new BorderLayout(5, 5));
         inputPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         messageField = new JTextField();
+        
+        fileButton = new JButton("+"); // A clean modern plus icon text string
+        fileButton.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        fileButton.putClientProperty("JButton.buttonType", "toolBarButton"); // Gives it a clean borderless look
+
         sendButton = new JButton("Send");
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        buttonPanel.add(fileButton);
+        buttonPanel.add(sendButton);
+        
         inputPanel.add(messageField, BorderLayout.CENTER);
-        inputPanel.add(sendButton, BorderLayout.EAST);
+        inputPanel.add(buttonPanel, BorderLayout.EAST);
         chatPanel.add(inputPanel, BorderLayout.SOUTH);
 
         JPanel fullChatWindow = new JPanel(new BorderLayout());
@@ -156,28 +168,13 @@ public class ChatClient {
             }
         });
 
-        
-        // 1. Define the sending action logic
-        ActionListener sendAction = e -> {
-            String message = messageField.getText().trim();
-            if (!message.isEmpty() && out != null) {
-                try {
-                    out.writeUTF(message);
-                    out.flush();
-                } catch (IOException ex) {
-                    System.getLogger(ChatClient.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
-                }
-                
-                // Show own message locally
-                chatArea.append("You: " + message + "\n");
-                messageField.setText("");
-            }
-        };
 
-        // 2. Assign the same action to BOTH the button click and the text field Enter key
-        sendButton.addActionListener(sendAction);
-        messageField.addActionListener(sendAction);
+        // Assign the same action to BOTH the button click and the text field Enter key
+        sendButton.addActionListener(e -> sendMessage());
+        messageField.addActionListener(e -> sendMessage());
 
+        // Assign file chooser behavior to the attachment clip button
+        fileButton.addActionListener(e -> sendFile());
     }
 
     private void connectToServer() {
@@ -185,7 +182,7 @@ public class ChatClient {
         this.username = usernameField.getText().trim();
 
         try {
-            // 1. Open socket — blocking call, safe on background thread
+            // 1. Open socket — blocking call, safe because we moved connectToServer to a background thread
             socket = new Socket(ip, 5000);
             out = new DataOutputStream(socket.getOutputStream());
             DataInputStream in = new DataInputStream(socket.getInputStream());
@@ -208,9 +205,31 @@ public class ChatClient {
                     // No more while(readUTF != null)
                     // Instead — loop forever, catch EOFException to detect disconnect
                     while(true) {
-                        String message = in.readUTF();
+                        String type = in.readUTF();
+                        
+                        if (type.equals("TEXT")) {
+                            String message = in.readUTF();
                         // Must update Swing components on EDT only
-                        SwingUtilities.invokeLater(() -> chatArea.append(message + "\n"));
+                            SwingUtilities.invokeLater(() -> chatArea.append(message + "\n"));
+                            
+                        } else if (type.equals("FILE")) {
+                            String meta = in.readUTF();
+                            long size = in.readLong();
+                            byte[] fileBytes = in.readNBytes((int) size);
+
+                            // Extract actual filename from "username sent file: filename.txt"
+                            String filename = meta.substring(meta.lastIndexOf(": ") + 2);
+
+                            // Auto-save to user's Downloads folder
+                            File saveDir = new File(System.getProperty("user.home") + "/Downloads/SockItChat");
+                            saveDir.mkdirs();
+                            File savedFile = new File(saveDir, filename);
+                            Files.write(savedFile.toPath(), fileBytes);
+
+                            SwingUtilities.invokeLater(() ->
+                                chatArea.append(meta + " — saved to Downloads/SockItChat/\n")
+                            );
+                        }
                     }
                 } catch (IOException e) {
                     SwingUtilities.invokeLater(() ->
@@ -227,6 +246,46 @@ public class ChatClient {
                     "Connection Error", JOptionPane.ERROR_MESSAGE);
                 connectButton.setEnabled(true); // re-enable so user can retry
             });
+        }
+    }
+
+
+    private void sendMessage() {
+        String text = messageField.getText().trim();
+        if (!text.isEmpty() && out != null) {
+            try {
+                out.writeUTF("TEXT");
+                out.writeUTF(text);
+                out.flush();
+                chatArea.append("You: " + text + "\n");
+                messageField.setText("");
+            } catch (IOException ex) {
+                chatArea.append("Failed to send message.\n");
+            }
+        }
+    }
+
+    private void sendFile() {
+        if (out == null) return;
+        
+        JFileChooser fileChooser = new JFileChooser();
+        int returnValue = fileChooser.showOpenDialog(frame);
+        
+        if (returnValue == JFileChooser.APPROVE_OPTION) {
+            File selectedFile = fileChooser.getSelectedFile();
+            try {
+                byte[] fileBytes = Files.readAllBytes(selectedFile.toPath());
+                
+                out.writeUTF("FILE");
+                out.writeUTF(selectedFile.getName());
+                out.writeLong(fileBytes.length);
+                out.write(fileBytes);
+                out.flush();
+                
+                chatArea.append("You sent: " + selectedFile.getName() + " (" + fileBytes.length + " bytes)\n");
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(frame, "Error reading or sending file: " + ex.getMessage(), "File Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
 
