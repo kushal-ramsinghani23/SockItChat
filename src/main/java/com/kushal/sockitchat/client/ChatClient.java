@@ -11,14 +11,15 @@ import java.io.IOException;
 import java.net.Socket;
 import java.nio.file.Files;
 
-public class ChatClient {
-
+public class ChatClient {    
     private Socket socket;
     private DataOutputStream out;
     private String username;
 
     private CardLayout cardLayout;
     private JPanel mainPanel;
+    private JPanel userProfilePanel;
+    private String userStatus = "Hey there! I'm using SockItChat";
 
     private JTextField usernameField;
     private JTextField serverIPField;
@@ -79,7 +80,11 @@ public class ChatClient {
         loginPanel.add(connectButton, gbc);
 
         mainPanel.add(loginPanel, "login");
-
+        
+        // Profile bar — initialized using instance field assignment block directly
+        userProfilePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
+        userProfilePanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Color.DARK_GRAY));
+        
         // --- Sidebar ---
         sidebarPanel = new JPanel(new BorderLayout());
         sidebarPanel.setPreferredSize(new Dimension(200, 0));
@@ -95,7 +100,8 @@ public class ChatClient {
         contactHeaderPanel.add(contactsTitle);
         sidebarPanel.add(contactHeaderPanel, BorderLayout.NORTH);
         sidebarPanel.add(new JScrollPane(contactList), BorderLayout.CENTER);
-
+        sidebarPanel.add(userProfilePanel, BorderLayout.SOUTH);     
+        
         // Profile bar — instance fields
         JPanel userProfilePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
         userProfilePanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Color.DARK_GRAY));
@@ -175,6 +181,8 @@ public class ChatClient {
 
         // Assign file chooser behavior to the attachment clip button
         fileButton.addActionListener(e -> sendFile());
+        
+        setupUserProfilePanel();
     }
 
     private void connectToServer() {
@@ -288,6 +296,109 @@ public class ChatClient {
             }
         }
     }
+    
+    /**
+    * Extracted standalone action to build and display the User Profile dialog window.
+    * This can be safely called from anywhere within ChatClient.
+    */
+    public void openUserProfile() {
+        
+       // Build and show the JDialog modal popup box
+       JDialog profileDialog = new JDialog(frame, "My Profile", true); // true = modal
+       profileDialog.setSize(300, 350);
+       profileDialog.setLocationRelativeTo(frame); // center on parent window frame
+       profileDialog.setLayout(new BorderLayout());
+
+       // Main Content layout panel
+       JPanel contentPanel = new JPanel(new GridBagLayout());
+       contentPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+       GridBagConstraints gbc = new GridBagConstraints();
+       gbc.insets = new Insets(10, 10, 10, 10);
+       gbc.gridx = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
+
+       // Crisp circular profile avatar rendering
+       JLabel largeAvatar = new JLabel(avatarLabel.getText(), JLabel.CENTER) {
+           @Override
+           protected void paintComponent(Graphics g) {
+               Graphics2D g2 = (Graphics2D) g.create();
+               g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+               g2.setColor(Color.DARK_GRAY);
+               g2.fillOval(0, 0, getWidth(), getHeight());
+               g2.dispose();
+               super.paintComponent(g);
+           }
+       };
+       largeAvatar.setFont(new Font("Segoe UI", Font.BOLD, 24));
+       largeAvatar.setForeground(Color.WHITE);
+       largeAvatar.setPreferredSize(new Dimension(60, 60));
+
+       gbc.gridy = 0; gbc.anchor = GridBagConstraints.CENTER;
+       contentPanel.add(largeAvatar, gbc);
+
+       // Dynamic large text username display
+       JLabel largeUsername = new JLabel(userProfileName.getText(), JLabel.CENTER);
+       largeUsername.setFont(new Font("Segoe UI", Font.BOLD, 18));
+       gbc.gridy = 1;
+       contentPanel.add(largeUsername, gbc);
+
+       // Status message information text field
+       JTextField statusField = new JTextField(userStatus);
+       statusField.putClientProperty("JTextField.placeholderText", "Status");
+       gbc.gridy = 2; gbc.weightx = 1.0;
+       contentPanel.add(statusField, gbc);
+
+       profileDialog.add(contentPanel, BorderLayout.CENTER);
+
+       // Save action button
+       JButton saveButton = new JButton("Save");
+       saveButton.putClientProperty("JButton.buttonType", "roundRect");
+       saveButton.addActionListener(al -> {
+            userStatus = statusField.getText().trim(); // remember for this session
+            profileDialog.dispose();
+        });
+       JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+       bottomPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 15));
+       bottomPanel.add(saveButton);
+       profileDialog.add(bottomPanel, BorderLayout.SOUTH);
+
+       profileDialog.setVisible(true); // blocks layout thread safely while modal window sits active
+   }
+
+    
+    /**
+    * Attaches the mouse interaction bindings directly to the username and avatar components.
+    */
+    private void setupUserProfilePanel() {
+       // Define a single shared mouse listener to avoid duplicating code structures
+       java.awt.event.MouseAdapter profileClickAction = new java.awt.event.MouseAdapter() {
+           @Override
+           public void mouseClicked(java.awt.event.MouseEvent e) {
+               // Trigger the modal profile dialog layout
+               openUserProfile();
+           }
+
+           @Override
+           public void mouseEntered(java.awt.event.MouseEvent e) {
+               // Switch pointer cursor to standard hand icon on hover to signify interactability
+               Component source = e.getComponent();
+               source.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+               // Optional subtle visual cue: turn text underline/bright or tint panel background
+               userProfilePanel.setBackground(Color.DARK_GRAY.darker());
+           }
+
+           @Override
+           public void mouseExited(java.awt.event.MouseEvent e) {
+               userProfilePanel.setBackground(UIManager.getColor("Panel.background"));
+           }
+       };
+
+       // Attach the interaction framework directly onto the specific bottom left labels
+       avatarLabel.addMouseListener(profileClickAction);
+       userProfileName.addMouseListener(profileClickAction);
+   }
+
+
 
     public static void main(String[] args) {
         FlatDarkLaf.setup();
