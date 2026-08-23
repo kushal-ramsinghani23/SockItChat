@@ -15,6 +15,8 @@ public class ClientHandler implements Runnable {
     private final Socket clientSocket;
     private DataOutputStream out;
     private String username;
+    private String status;
+    private byte[] profileImageBytes; // Added server-side storage for the image
 
     public ClientHandler(Socket clientSocket) {
         this.clientSocket = clientSocket;
@@ -27,17 +29,29 @@ public class ClientHandler implements Runnable {
             DataInputStream in = new DataInputStream(clientSocket.getInputStream());
             this.out = new DataOutputStream(clientSocket.getOutputStream());
 
-            // First message from client is always the username
+            // 1. Handshake Phase: First message from client is always the username
             this.username = in.readUTF();
             UserContext.currentUser.set(username);
             
+            // 2. Profile Registration Handshake (Task 3 & Image Sync)
+            this.status = in.readUTF(); // Read user's custom status message string
+            
+            boolean hasImage = in.readBoolean(); // Check if a profile picture follows
+            if (hasImage) {
+                long imageSize = in.readLong(); // Read explicit size boundary
+                this.profileImageBytes = in.readNBytes((int) imageSize); // Extract raw binary array block safely
+            }
+            
             // Safe to add — out is fully initialized
             Server.clients.add(this);
-            System.out.println(username + " connected! Total: " + Server.clients.size());
+            System.out.println(username + " (" + status + ") connected! Has Image: " + hasImage + ". Total: " + Server.clients.size());
 
             // Read messages and broadcast to all other clients
             Thread readerThread = new Thread(() -> {
                 try {
+                    // FIX: Bind the ThreadLocal context explicitly inside the reader thread's isolated execution scope
+                    UserContext.currentUser.set(username);
+                    
                     // No more while(readUTF != null)
                     // Instead — loop forever, catch EOFException to detect disconnect
                     while(true) {
@@ -71,8 +85,12 @@ public class ClientHandler implements Runnable {
             System.out.println("Server error: " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } finally {
+            // CRITICAL SAFETY NET: Clean up the connection thread's thread-local storage footprint upon exit
+            UserContext.currentUser.remove();
         }
     }
+
 
     // Send message to all clients except sender
     private void broadcastText(String message) {

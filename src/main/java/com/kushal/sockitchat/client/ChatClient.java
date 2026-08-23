@@ -19,7 +19,7 @@ public class ChatClient {
     private CardLayout cardLayout;
     private JPanel mainPanel;
     private JPanel userProfilePanel;
-    private String userStatus = "Hey there! I'm using SockItChat";
+    private String currentStatus = "Hey there! I'm using SockItChat";
 
     private JTextField usernameField;
     private JTextField serverIPField;
@@ -37,6 +37,8 @@ public class ChatClient {
     private JFrame frame;
     private final JLabel userProfileName;
     private final JLabel avatarLabel;
+    
+    private java.awt.image.BufferedImage profileImage = null;
 
     public ChatClient() {
         frame = new JFrame("SockItChat");
@@ -102,14 +104,29 @@ public class ChatClient {
         sidebarPanel.add(new JScrollPane(contactList), BorderLayout.CENTER);
         sidebarPanel.add(userProfilePanel, BorderLayout.SOUTH);     
         
-        // Profile bar — instance fields
-        JPanel userProfilePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
-        userProfilePanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Color.DARK_GRAY));
-
-        avatarLabel = new JLabel("?", JLabel.CENTER);
+        // --- Inside ChatClient Constructor ---
+        avatarLabel = new JLabel("?", JLabel.CENTER) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                
+                if (profileImage != null) {
+                    // Mirror the clipping mask behavior straight onto the primary sidebar container viewport
+                    g2.setClip(new java.awt.geom.Ellipse2D.Float(0, 0, getWidth(), getHeight()));
+                    g2.drawImage(profileImage, 0, 0, getWidth(), getHeight(), null);
+                } else {
+                    // Fallback to standard baseline flat graphic layout behavior if instance memory is empty
+                    g2.setColor(Color.DARK_GRAY);
+                    g2.fillOval(0, 0, getWidth(), getHeight());
+                    super.paintComponent(g2); // Draws the text character string automatically
+                }
+                g2.dispose();
+            }
+        };
         avatarLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        avatarLabel.setOpaque(true);
-        avatarLabel.setBackground(Color.DARK_GRAY);
+        avatarLabel.setOpaque(false); // Changed to false so the square background bounding area box doesn't overlap the circular clip vector
         avatarLabel.setForeground(Color.WHITE);
         avatarLabel.setPreferredSize(new Dimension(32, 32));
 
@@ -195,11 +212,30 @@ public class ChatClient {
             out = new DataOutputStream(socket.getOutputStream());
             DataInputStream in = new DataInputStream(socket.getInputStream());
 
-            // 2. Send username as first message
+            // 2. Send username 
             out.writeUTF(username);
-            out.flush();
             
-            // 3. Switch to chat screen on EDT
+            // 3. Send status
+            out.writeUTF(currentStatus);
+            
+            // 4. Convert and send profile image if it exists
+            if (this.profileImage != null) {
+                out.writeBoolean(true); // Tell server an image IS coming
+
+                // Convert BufferedImage to raw byte array
+                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                javax.imageio.ImageIO.write(this.profileImage, "png", baos);
+                byte[] imageBytes = baos.toByteArray();
+
+                out.writeLong(imageBytes.length); // Send size boundary
+                out.write(imageBytes); // Send raw payload
+            } else {
+                out.writeBoolean(false); // Tell server NO image is coming
+            }
+
+            out.flush(); // Flush all registration packet blocks together
+            
+            // 5. Switch to chat screen on EDT
             SwingUtilities.invokeLater(() -> {
                 cardLayout.show(mainPanel, "chat");
                 frame.setTitle("SockItChat — " + username);
@@ -207,7 +243,7 @@ public class ChatClient {
                 avatarLabel.setText(String.valueOf(username.charAt(0)).toUpperCase());
             });
 
-            // 4. Reader thread — listens for incoming messages forever
+            // 6. Reader thread — listens for incoming messages forever
             Thread readerThread = new Thread(() -> {
                 try {
                     // No more while(readUTF != null)
@@ -302,11 +338,9 @@ public class ChatClient {
     * This can be safely called from anywhere within ChatClient.
     */
     public void openUserProfile() {
-        
-       // Build and show the JDialog modal popup box
-       JDialog profileDialog = new JDialog(frame, "My Profile", true); // true = modal
-       profileDialog.setSize(300, 350);
-       profileDialog.setLocationRelativeTo(frame); // center on parent window frame
+       JDialog profileDialog = new JDialog(frame, "My Profile", true);
+       profileDialog.setSize(340, 420); // slightly taller to give space for the upload button
+       profileDialog.setLocationRelativeTo(frame);
        profileDialog.setLayout(new BorderLayout());
 
        // Main Content layout panel
@@ -316,53 +350,107 @@ public class ChatClient {
        gbc.insets = new Insets(10, 10, 10, 10);
        gbc.gridx = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
 
-       // Crisp circular profile avatar rendering
-       JLabel largeAvatar = new JLabel(avatarLabel.getText(), JLabel.CENTER) {
+       // Custom avatar rendering component utilizing dynamic vector graphics clipping masks
+       JLabel largeAvatar = new JLabel("", JLabel.CENTER) {
            @Override
            protected void paintComponent(Graphics g) {
                Graphics2D g2 = (Graphics2D) g.create();
                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-               g2.setColor(Color.DARK_GRAY);
-               g2.fillOval(0, 0, getWidth(), getHeight());
+               g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+               if (profileImage != null) {
+                   // Precise graphics clipping path sequence
+                   g2.setClip(new java.awt.geom.Ellipse2D.Float(0, 0, getWidth(), getHeight()));
+                   g2.drawImage(profileImage, 0, 0, getWidth(), getHeight(), null);
+               } else {
+                   // Fallback text avatar shape configuration
+                   g2.setColor(Color.DARK_GRAY);
+                   g2.fillOval(0, 0, getWidth(), getHeight());
+
+                   // Manually draw the initial letter text directly onto the shape to keep it beneath structural rendering boundaries
+                   g2.setColor(Color.WHITE);
+                   g2.setFont(new Font("Segoe UI", Font.BOLD, 24));
+                   FontMetrics fm = g2.getFontMetrics();
+                   String text = avatarLabel.getText();
+                   int textX = (getWidth() - fm.stringWidth(text)) / 2;
+                   int textY = ((getHeight() - fm.getHeight()) / 2) + fm.getAscent();
+                   g2.drawString(text, textX, textY);
+               }
                g2.dispose();
-               super.paintComponent(g);
            }
        };
-       largeAvatar.setFont(new Font("Segoe UI", Font.BOLD, 24));
-       largeAvatar.setForeground(Color.WHITE);
        largeAvatar.setPreferredSize(new Dimension(60, 60));
 
        gbc.gridy = 0; gbc.anchor = GridBagConstraints.CENTER;
        contentPanel.add(largeAvatar, gbc);
 
-       // Dynamic large text username display
+       // Upload Photo Action Button Intermediary Component
+       JButton uploadButton = new JButton("Upload Photo");
+       uploadButton.putClientProperty("JButton.buttonType", "toolBarButton");
+       uploadButton.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+       gbc.gridy = 1;
+       contentPanel.add(uploadButton, gbc);
+
+       // Large structural text username display label
        JLabel largeUsername = new JLabel(userProfileName.getText(), JLabel.CENTER);
        largeUsername.setFont(new Font("Segoe UI", Font.BOLD, 18));
-       gbc.gridy = 1;
+       gbc.gridy = 2;
        contentPanel.add(largeUsername, gbc);
 
-       // Status message information text field
-       JTextField statusField = new JTextField(userStatus);
+       // Status metadata entry text field container
+       JTextField statusField = new JTextField(currentStatus);
        statusField.putClientProperty("JTextField.placeholderText", "Status");
-       gbc.gridy = 2; gbc.weightx = 1.0;
+       gbc.gridy = 3; gbc.weightx = 1.0;
        contentPanel.add(statusField, gbc);
 
        profileDialog.add(contentPanel, BorderLayout.CENTER);
 
-       // Save action button
+       // Profile submission block
        JButton saveButton = new JButton("Save");
        saveButton.putClientProperty("JButton.buttonType", "roundRect");
        saveButton.addActionListener(al -> {
-            userStatus = statusField.getText().trim(); // remember for this session
-            profileDialog.dispose();
-        });
+           currentStatus = statusField.getText().trim();
+           profileDialog.dispose();
+       });
+
        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
        bottomPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 15));
        bottomPanel.add(saveButton);
        profileDialog.add(bottomPanel, BorderLayout.SOUTH);
 
-       profileDialog.setVisible(true); // blocks layout thread safely while modal window sits active
+       // Wire Up image file scanner targeting the Upload Button component frame
+       uploadButton.addActionListener(e -> {
+           JFileChooser fileChooser = new JFileChooser();
+           // Restrict scan targets explicitly to discrete file image containers
+           fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+               "Images (JPG, PNG, BMP)", "jpg", "jpeg", "png", "bmp"
+           ));
+
+           int result = fileChooser.showOpenDialog(profileDialog);
+           if (result == JFileChooser.APPROVE_OPTION) {
+               try {
+                   File selectedFile = fileChooser.getSelectedFile();
+                   // Read straight into memory space as a raw BufferedImage
+                   java.awt.image.BufferedImage rawImg = javax.imageio.ImageIO.read(selectedFile);
+
+                   if (rawImg != null) {
+                       profileImage = rawImg;
+
+                       // Force the component to invoke its custom paintComponent code logic stream
+                       largeAvatar.repaint();
+
+                       // Mirror the loaded photo container asset out onto the main screen background sidebar component view simultaneously
+                       avatarLabel.repaint();
+                   }
+               } catch (IOException ex) {
+                   JOptionPane.showMessageDialog(profileDialog, "Failed to load profile image: " + ex.getMessage(), "Image Error", JOptionPane.ERROR_MESSAGE);
+               }
+           }
+       });
+
+       profileDialog.setVisible(true);
    }
+
 
     
     /**
