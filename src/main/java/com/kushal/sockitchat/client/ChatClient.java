@@ -28,7 +28,8 @@ public class ChatClient {
     private JPanel sidebarPanel;
     private JPanel chatPanel;
     private JPanel topBarPanel;
-    private JTextArea chatArea;
+    private JTextPane chatArea;
+
     private JTextField messageField;
     private JButton sendButton;
     private JButton fileButton; // Added instance field for the file attachment button
@@ -147,10 +148,20 @@ public class ChatClient {
         topBarPanel.add(activeContactLabel);
         chatPanel.add(topBarPanel, BorderLayout.NORTH);
 
-        chatArea = new JTextArea();
+        // --- Inside ChatClient Constructor (Replacing JTextArea setup) ---
+        chatArea = new JTextPane();
         chatArea.setEditable(false);
-        chatArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        chatArea.setContentType("text/html"); // Enables inline layout styling via HTML/CSS
         chatArea.setMargin(new Insets(10, 10, 10, 10));
+        
+        // Seed an empty base document layout framework structure inside it
+        chatArea.setText("<html><head><style>"
+            + "body { font-family: 'Segoe UI', sans-serif; font-size: 13px; color: #E0E0E0; margin: 5px; }"
+            + ".user-msg { margin-bottom: 6px; }"
+            + ".system-msg { text-align: center; margin: 10px 0; }"
+            + ".system-bubble { background-color: #2D3238; color: #8E99A4; padding: 4px 12px; border-radius: 8px; display: inline-block; font-size: 11px; font-weight: 500; }"
+            + "</style></head><body><div id='chat-content'></div></body></html>");
+        
         chatPanel.add(new JScrollPane(chatArea), BorderLayout.CENTER);
 
         JPanel inputPanel = new JPanel(new BorderLayout(5, 5));
@@ -253,9 +264,29 @@ public class ChatClient {
                         
                         if (type.equals("TEXT")) {
                             String message = in.readUTF();
-                        // Must update Swing components on EDT only
-                            SwingUtilities.invokeLater(() -> chatArea.append(message + "\n"));
-                            
+
+                            // Check if the message contains a sender prefix delimiter
+                            if (message.contains(": ")) {
+                                int separatorIndex = message.indexOf(": ");
+                                String sender = message.substring(0, separatorIndex);
+                                String content = message.substring(separatorIndex + 2);
+
+                                // Direct incoming data cleanly into the left-aligned bubble layout
+                                appendOtherMessage(sender, content);
+                            } else {
+                                // Fallback for unstructured text payloads
+                                appendHTMLMessage("<div class='user-msg'>" + message + "</div>");
+                            }                            
+                        } else if (type.equals("SYSTEM")) {
+                            String systemAlert = in.readUTF();
+                            // Centered background table row layout to simulate rounded bubble borders cleanly
+                            String systemBubbleHtml = "<div align='center' style='margin: 10px 0;'>"
+                                + "<table bgcolor='#2D3238' cellpadding='4' cellspacing='0' style='border: 1px solid #3A3F45;'>"
+                                + "<tr><td class='sys-text' align='center'>" + systemAlert + "</td></tr>"
+                                + "</table>"
+                                + "</div>";
+                            appendHTMLMessage(systemBubbleHtml);
+
                         } else if (type.equals("FILE")) {
                             String meta = in.readUTF();
                             long size = in.readLong();
@@ -268,16 +299,24 @@ public class ChatClient {
                             File saveDir = new File(System.getProperty("user.home") + "/Downloads/SockItChat");
                             saveDir.mkdirs();
                             File savedFile = new File(saveDir, filename);
-                            Files.write(savedFile.toPath(), fileBytes);
+                            java.nio.file.Files.write(savedFile.toPath(), fileBytes);
 
-                            SwingUtilities.invokeLater(() ->
-                                chatArea.append(meta + " — saved to Downloads/SockItChat/\n")
-                            );
+                            // Styled file message layout
+                            appendHTMLMessage("<div class='user-msg'>📎 <i>" + meta + " — saved to Downloads/SockItChat/</i></div>");
                         }
                     }
                 } catch (IOException e) {
-                    SwingUtilities.invokeLater(() ->
-                        chatArea.append("** Disconnected from server **\n"));
+                    SwingUtilities.invokeLater(() -> {
+                        // Injects a localized disconnect message using html style rules
+                        appendHTMLMessage("<div align='center' style='margin: 10px 0; color: #FF4A4A;'><b>** Disconnected from server **</b></div>");
+                        
+                        // Resets component window interaction permissions safely
+                        sendButton.setEnabled(false);
+                        fileButton.setEnabled(false);
+                        messageField.setEnabled(false);
+                        connectButton.setEnabled(true);
+                        cardLayout.show(mainPanel, "login");
+                    });
                 }
             });
             readerThread.setDaemon(true); // dies when main app closes
@@ -301,10 +340,13 @@ public class ChatClient {
                 out.writeUTF("TEXT");
                 out.writeUTF(text);
                 out.flush();
-                chatArea.append("You: " + text + "\n");
+                
+                // FIX: Update your local UI view instantly using the new right-aligned green bubble
+                appendOwnMessage(text);
+                
                 messageField.setText("");
             } catch (IOException ex) {
-                chatArea.append("Failed to send message.\n");
+                appendHTMLMessage("<div align='center' style='color: #FF4A4A;'>** Failed to send message **</div>");
             }
         }
     }
@@ -326,7 +368,7 @@ public class ChatClient {
                 out.write(fileBytes);
                 out.flush();
                 
-                chatArea.append("You sent: " + selectedFile.getName() + " (" + fileBytes.length + " bytes)\n");
+                appendHTMLMessage("<div class='user-msg'>📎 <i>You sent: " + selectedFile.getName() + " (" + fileBytes.length + " bytes)</i></div>");
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(frame, "Error reading or sending file: " + ex.getMessage(), "File Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -449,7 +491,7 @@ public class ChatClient {
        });
 
        profileDialog.setVisible(true);
-   }
+    }
 
 
     
@@ -484,8 +526,61 @@ public class ChatClient {
        // Attach the interaction framework directly onto the specific bottom left labels
        avatarLabel.addMouseListener(profileClickAction);
        userProfileName.addMouseListener(profileClickAction);
-   }
+    }
 
+    /**
+    * Safely inserts a raw styled HTML block directly into the chat container document body.
+    */
+    private void appendHTMLMessage(String htmlSnippet) {
+       SwingUtilities.invokeLater(() -> {
+           try {
+               // Target the raw document engine model inside the component pane wrapper
+               javax.swing.text.html.HTMLDocument doc = (javax.swing.text.html.HTMLDocument) chatArea.getDocument();
+               javax.swing.text.Element element = doc.getElement("chat-content");
+
+               // Inject the new message node segment cleanly at the end of the container tag body
+               doc.insertBeforeEnd(element, htmlSnippet);
+
+               // Auto-scroll logic: position the viewport caret context line back down to the bottom
+               chatArea.setCaretPosition(doc.getLength());
+           } catch (Exception ex) {
+               System.err.println("HTML rendering engine failure: " + ex.getMessage());
+           }
+       });
+    }
+    
+    /**
+    * Renders your own messages on the right side inside a dark green bubble.
+    */
+    private void appendOwnMessage(String text) {
+       // Standard table layout to securely wrap text backgrounds within old Swing HTML limitations
+       String html = "<div align='right' style='margin: 4px 8px;'>"
+           + "<table bgcolor='#005C4B' cellpadding='6' cellspacing='0' style='border: 1px solid #004D3F;'>"
+           + "<tr><td style='color: white; font-family: \"Segoe UI\", sans-serif; font-size: 13px;'>" 
+           + text 
+           + "</td></tr>"
+           + "</table>"
+           + "</div>";
+       appendHTMLMessage(html);
+    }
+
+   /**
+    * Renders incoming messages on the left side inside a dark gray bubble with a sender header name.
+    */
+    private void appendOtherMessage(String sender, String message) {
+       // Multi-row table: top row holds the sender label, bottom row holds the message payload block
+       String html = "<div align='left' style='margin: 4px 8px;'>"
+           + "<table bgcolor='#1E2428' cellpadding='6' cellspacing='0' style='border: 1px solid #2A3135;'>"
+           + "<tr><td style='padding-bottom: 2px;'>"
+           + "<font color='#8E99A4' face='Segoe UI' size='2'><b>" + sender + "</b></font>"
+           + "</td></tr>"
+           + "<tr><td style='color: white; font-family: \"Segoe UI\", sans-serif; font-size: 13px;'>" 
+           + message 
+           + "</td></tr>"
+           + "</table>"
+           + "</div>";
+       appendHTMLMessage(html);
+    }
 
 
     public static void main(String[] args) {

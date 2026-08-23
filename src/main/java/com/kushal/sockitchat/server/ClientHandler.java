@@ -44,7 +44,7 @@ public class ClientHandler implements Runnable {
             
             // Safe to add — out is fully initialized
             Server.clients.add(this);
-            System.out.println(username + " (" + status + ") connected! Has Image: " + hasImage + ". Total: " + Server.clients.size());
+            System.out.println(username + " (" + status + ") connected! \nHas Image: " + hasImage + ". \nTotal: " + Server.clients.size());
 
             // Read messages and broadcast to all other clients
             Thread readerThread = new Thread(() -> {
@@ -71,10 +71,11 @@ public class ClientHandler implements Runnable {
                 } finally {
                     // remove dead handler — prevents broadcasting to closed sockets
                     Server.clients.remove(this);
-                    
-                    // clear ThreadLocal — prevents stale data leaking into reused pool threads
-                    UserContext.currentUser.remove();
+                    broadcastSystem(username + " has left the chat.");
+
                     System.out.println(username + " removed. Total: " + Server.clients.size());
+                    
+                    try { clientSocket.close(); } catch (IOException e) { }
                 }
             });
 
@@ -119,6 +120,23 @@ public class ClientHandler implements Runnable {
                 } catch (IOException ex) {
                     System.out.println("Failed to send to " + ch.username + ": " + ex.getMessage());
                 }
+            }
+        }
+    }
+    
+    /**
+     * Broadcasts control messages, alerts, or status notifications across the active cluster.
+     */
+    private void broadcastSystem(String systemMessage) {
+        for (ClientHandler ch : Server.clients) {
+            // It's safe to skip checking (!ch.equals(this)) here because the current handler 
+            // has already been removed from Server.clients above, avoiding dead pipe exceptions.
+            try {
+                ch.out.writeUTF("SYSTEM"); // Send protocol layout instruction header
+                ch.out.writeUTF(systemMessage); // Send raw system alert log straight through
+                ch.out.flush();
+            } catch (IOException ex) {
+                System.out.println("System broadcast failed to " + ch.username + ": " + ex.getMessage());
             }
         }
     }
